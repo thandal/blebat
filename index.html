@@ -33,21 +33,12 @@
     position: sticky; top: 0; z-index: 5;
     background: linear-gradient(180deg, var(--bg-2), var(--bg));
     border-bottom: 1px solid var(--line);
-    padding: 12px 16px calc(12px + env(safe-area-inset-top)) 16px;
+    padding: 12px 16px;
     padding-top: calc(12px + env(safe-area-inset-top));
     display: flex; align-items: center; gap: 12px;
   }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.2px; flex: 1; }
-  .status-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--idle); box-shadow: 0 0 0 2px rgba(255,255,255,0.05);
-    transition: background 0.3s;
-  }
-  .status-dot.connecting { background: var(--warn); animation: pulse 1s infinite; }
-  .status-dot.connected  { background: var(--good); }
-  .status-dot.error      { background: var(--bad); }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-  .status-text { font-size: 13px; color: var(--muted); }
+  .header-summary { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   main { padding: 14px; max-width: 720px; margin: 0 auto; }
 
@@ -65,19 +56,78 @@
   button.primary:hover:not(:disabled) { background: #6ba2ff; }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .card {
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  .empty {
+    text-align: center; padding: 36px 16px; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 14px; background: var(--card);
   }
-  .card h2 {
-    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
-    color: var(--muted); margin: 0 0 10px 0;
-  }
+  .empty h3 { margin: 0 0 6px 0; color: var(--text); font-size: 16px; font-weight: 600; }
+  .empty p { margin: 4px 0; font-size: 13px; }
 
-  .device-row { display: flex; justify-content: space-between; gap: 10px; }
-  .device-row + .device-row { margin-top: 6px; }
-  .device-row .k { color: var(--muted); }
-  .device-row .v { font-family: var(--mono); font-size: 13px; }
+  /* ─── Battery card (summary + collapsible detail) ─── */
+  .battery-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; margin-bottom: 12px; overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .battery-card.expanded { border-color: var(--accent); }
+
+  .battery-summary {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 14px;
+    padding: 12px 14px; cursor: pointer;
+    user-select: none;
+  }
+  .battery-summary:hover { background: var(--card-2); }
+  .battery-summary .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    background: var(--idle); box-shadow: 0 0 0 2px rgba(255,255,255,0.05);
+    transition: background 0.3s;
+  }
+  .battery-summary .status-dot.connecting { background: var(--warn); animation: pulse 1s infinite; }
+  .battery-summary .status-dot.connected  { background: var(--good); }
+  .battery-summary .status-dot.error,
+  .battery-summary .status-dot.disconnected { background: var(--bad); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .battery-summary .title { flex: 1; min-width: 120px; }
+  .battery-summary .name { font-weight: 600; font-size: 14px; word-break: break-all; }
+  .battery-summary .type { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .quick-stats {
+    display: flex; gap: 14px; font-variant-numeric: tabular-nums;
+    margin-left: auto;
+  }
+  .qs { text-align: right; }
+  .qsv { font-size: 18px; font-weight: 600; }
+  .qsu { font-size: 11px; color: var(--muted); margin-left: 2px; }
+  .qs.charging .qsv { color: var(--good); }
+  .qs.discharging .qsv { color: var(--warn); }
+
+  .expand-btn {
+    background: transparent; border: none; color: var(--muted);
+    font-size: 14px; padding: 4px 6px; cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .battery-card.expanded .expand-btn { transform: rotate(180deg); }
+
+  .battery-status-row {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 11px; color: var(--muted);
+    padding: 0 14px 10px;
+    font-family: var(--mono);
+  }
+  .battery-status-row .last-update { font-variant-numeric: tabular-nums; }
+
+  .battery-detail {
+    border-top: 1px solid var(--line);
+    padding: 14px;
+  }
+  .battery-detail .sub {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--muted);
+    margin: 16px 0 8px;
+  }
+  .battery-detail .sub:first-child { margin-top: 0; }
 
   .grid {
     display: grid; gap: 10px;
@@ -123,6 +173,9 @@
   .cell .v { text-align: right; font-variant-numeric: tabular-nums; }
   .cell.high .v { color: var(--good); }
   .cell.low .v { color: var(--bad); }
+  @media (min-width: 600px) {
+    .cells { grid-template-columns: 1fr 1fr; }
+  }
 
   .temps { display: flex; flex-wrap: wrap; gap: 8px; }
   .temp {
@@ -141,12 +194,14 @@
   .flag.off { background: rgba(255,92,92,0.12); border-color: rgba(255,92,92,0.4); color: #ff9090; }
   .flag.warn{ background: rgba(241,196,15,0.15); border-color: rgba(241,196,15,0.4); color: #ffe06b; }
 
-  .empty {
-    text-align: center; padding: 36px 16px; color: var(--muted);
-    border: 1px dashed var(--line); border-radius: 14px; background: var(--card);
+  .muted-hint { color: var(--muted); font-size: 13px; }
+
+  .detail-actions {
+    display: flex; gap: 8px; margin-top: 16px;
+    padding-top: 12px; border-top: 1px solid var(--line);
   }
-  .empty h3 { margin: 0 0 6px 0; color: var(--text); font-size: 16px; font-weight: 600; }
-  .empty p { margin: 4px 0; font-size: 13px; }
+  .btn-forget { color: var(--bad); border-color: rgba(255,92,92,0.4); }
+  .btn-forget:hover:not(:disabled) { border-color: var(--bad); }
 
   details.log { margin-top: 16px; }
   details.log summary {
@@ -178,71 +233,30 @@
     color: var(--muted); font-size: 11px; text-align: center;
     margin: 24px 0 8px 0; line-height: 1.5;
   }
-
-  @media (min-width: 600px) {
-    .cells { grid-template-columns: 1fr 1fr; }
-  }
 </style>
 </head>
 <body>
 
 <header>
-  <span id="statusDot" class="status-dot" aria-hidden="true"></span>
-  <h1>BLE Bat</h1>
-  <span id="statusText" class="status-text">Idle</span>
+  <h1>🔋 BLE Bat</h1>
+  <span id="headerSummary" class="header-summary">No batteries</span>
 </header>
 
 <main>
   <div class="actions">
-    <button id="btnConnect" class="primary">🔌 Scan & Connect</button>
-    <button id="btnDisconnect" disabled>Disconnect</button>
-    <button id="btnRefresh" disabled>↻ Refresh now</button>
+    <button id="btnAdd" class="primary">＋ Add battery</button>
+    <button id="btnRefresh">↻ Refresh all</button>
   </div>
 
   <div id="emptyState" class="empty">
-    <h3>No device connected</h3>
-    <p>Tap <b>Scan & Connect</b> to look for a battery.</p>
-    <p>Supported: Daly Smart BMS (K/H/M/S series, name starts with <code>DL-</code>) and JBD / Xiaoxiang / DCHouse BMS (service <code>0xFF00</code>).</p>
+    <h3>No batteries paired yet</h3>
+    <p>Tap <b>Add battery</b> to pair one. After that, every visit auto-connects to it.</p>
+    <p>Pair each battery once; they’ll all reconnect on the next page load.</p>
+    <p>Supported: Daly Smart BMS (K/H/M/S, name <code>DL-…</code>) and JBD / Xiaoxiang / DCHouse BMS (service <code>0xFF00</code>).</p>
     <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost.</p>
   </div>
 
-  <div id="deviceCard" class="card" hidden>
-    <h2>Device</h2>
-    <div class="device-row"><span class="k">Name</span><span class="v" id="devName">—</span></div>
-    <div class="device-row"><span class="k">Type</span><span class="v" id="devType">—</span></div>
-    <div class="device-row"><span class="k">Last update</span><span class="v" id="devUpdated">—</span></div>
-  </div>
-
-  <div id="statsCard" class="card" hidden>
-    <h2>Pack</h2>
-    <div class="grid">
-      <div class="stat"><div class="label">Voltage</div><div class="value"><span id="sVolt">—</span><span class="unit">V</span></div></div>
-      <div class="stat" id="sCurStat"><div class="label">Current</div><div class="value"><span id="sCur">—</span><span class="unit">A</span></div></div>
-      <div class="stat"><div class="label">Power</div><div class="value"><span id="sPwr">—</span><span class="unit">W</span></div></div>
-      <div class="stat">
-        <div class="label">SOC</div>
-        <div class="value"><span id="sSoc">—</span><span class="unit">%</span></div>
-        <div class="soc-bar"><div id="sSocBar" style="width:0%"></div></div>
-      </div>
-      <div class="stat"><div class="label">Capacity</div><div class="value"><span id="sCap">—</span><span class="unit">Ah</span></div></div>
-      <div class="stat"><div class="label">Cycles</div><div class="value" id="sCyc">—</div></div>
-    </div>
-  </div>
-
-  <div id="cellsCard" class="card" hidden>
-    <h2>Cells <span id="cellsMeta" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px"></span></h2>
-    <div id="cells" class="cells"></div>
-  </div>
-
-  <div id="tempsCard" class="card" hidden>
-    <h2>Temperatures</h2>
-    <div id="temps" class="temps"></div>
-  </div>
-
-  <div id="flagsCard" class="card" hidden>
-    <h2>State</h2>
-    <div id="flags" class="flags"></div>
-  </div>
+  <div id="batteryList" hidden></div>
 
   <details class="log">
     <summary>Debug log</summary>
@@ -263,7 +277,6 @@
 
 const $ = (id) => document.getElementById(id);
 const hex = (b) => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ');
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const log = (msg, cls = 'info') => {
   const el = $('log');
@@ -282,11 +295,6 @@ const toast = (msg, isError = false) => {
   t.classList.add('show');
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.classList.remove('show'), 3500);
-};
-
-const setStatus = (text, kind = '') => {
-  $('statusText').textContent = text;
-  $('statusDot').className = 'status-dot' + (kind ? ' ' + kind : '');
 };
 
 // CRC-16 Modbus (Daly)
@@ -519,91 +527,182 @@ const JBD = {
   },
 };
 
-// ─── Connection manager ───────────────────────────────────────────────────────
+const REQUEST_FILTERS = {
+  filters: [
+    { namePrefix: 'DL-' },
+    { namePrefix: 'JBD-' },
+    { namePrefix: 'DWF' },
+    { namePrefix: 'SX1' },
+    { namePrefix: 'SX60' },
+    { namePrefix: 'SBL-' },
+    { namePrefix: 'OGR-' },
+    { services: [UUID.daly.service] },
+    { services: [UUID.jbd.service] },
+  ],
+  optionalServices: [UUID.daly.service, UUID.jbd.service],
+};
 
-class BMSConnection {
-  constructor() {
-    this.device = null;
-    this.server = null;
-    this.proto = null;
+// ─── Battery (one device, one card) ───────────────────────────────────────────
+
+class Battery {
+  constructor(device, manager) {
+    this.device   = device;
+    this.manager  = manager;
+    this.id       = device.id;
+    this.name     = device.name || '(unnamed)';
+    this.proto    = null;
+    this.server   = null;
     this.notifyChar = null;
-    this.writeChar = null;
-    this.buffer = [];
-    this.pending = null;       // { resolve, reject, timer }
+    this.writeChar  = null;
+    this.buffer   = [];
+    this.pending  = null;
     this.pollTimer = null;
-    this.pollBusy = false;
+    this.pollBusy  = false;
+    this.retryTimer = null;
+    this.expanded = false;
+    this.destroyed = false;
+    this.lastData = null;
+    this.lastUpdate = null;
+    this.status = 'idle';
+    this.statusMsg = 'Idle';
+
+    this._onGattDisc = () => this._onDisconnected();
+    device.addEventListener('gattserverdisconnected', this._onGattDisc);
+
+    this.el = this._buildEl();
+    this._renderStatus();
   }
 
-  async scanAndConnect() {
-    if (!('bluetooth' in navigator)) {
-      throw new Error('Web Bluetooth not supported. Use Android Chrome (or desktop Chrome) over HTTPS.');
-    }
-
-    setStatus('Requesting device…', 'connecting');
-    log('Opening device chooser', 'info');
-
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { namePrefix: 'DL-' },
-        { namePrefix: 'JBD-' },
-        { namePrefix: 'DWF' },
-        { namePrefix: 'SX1' },
-        { namePrefix: 'SX60' },
-        { namePrefix: 'SBL-' },
-        { namePrefix: 'OGR-' },
-        { services: [UUID.daly.service] },
-        { services: [UUID.jbd.service] },
-      ],
-      optionalServices: [UUID.daly.service, UUID.jbd.service],
+  _buildEl() {
+    const el = document.createElement('div');
+    el.className = 'battery-card';
+    el.dataset.id = this.id;
+    el.innerHTML = `
+      <div class="battery-summary">
+        <span class="status-dot"></span>
+        <div class="title">
+          <div class="name"></div>
+          <div class="type">—</div>
+        </div>
+        <div class="quick-stats">
+          <div class="qs"><span class="qsv qs-volt">—</span><span class="qsu">V</span></div>
+          <div class="qs qs-cur-wrap"><span class="qsv qs-cur">—</span><span class="qsu">A</span></div>
+          <div class="qs"><span class="qsv qs-soc">—</span><span class="qsu">%</span></div>
+        </div>
+        <button class="expand-btn" type="button" aria-label="Toggle detail">▾</button>
+      </div>
+      <div class="battery-status-row">
+        <span class="status-msg">Idle</span>
+        <span class="last-update"></span>
+      </div>
+      <div class="battery-detail" hidden>
+        <h3 class="sub">Pack</h3>
+        <div class="grid">
+          <div class="stat"><div class="label">Voltage</div><div class="value"><span class="d-volt">—</span><span class="unit">V</span></div></div>
+          <div class="stat d-cur-stat"><div class="label">Current</div><div class="value"><span class="d-cur">—</span><span class="unit">A</span></div></div>
+          <div class="stat"><div class="label">Power</div><div class="value"><span class="d-pwr">—</span><span class="unit">W</span></div></div>
+          <div class="stat">
+            <div class="label">SOC</div>
+            <div class="value"><span class="d-soc">—</span><span class="unit">%</span></div>
+            <div class="soc-bar"><div class="d-socbar" style="width:0%"></div></div>
+          </div>
+          <div class="stat"><div class="label">Capacity</div><div class="value"><span class="d-cap">—</span><span class="unit">Ah</span></div></div>
+          <div class="stat"><div class="label">Cycles</div><div class="value d-cyc">—</div></div>
+        </div>
+        <h3 class="sub">Cells <span class="cells-meta" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px"></span></h3>
+        <div class="cells"></div>
+        <h3 class="sub">Temperatures</h3>
+        <div class="temps"></div>
+        <h3 class="sub">State</h3>
+        <div class="flags"></div>
+        <div class="detail-actions">
+          <button class="btn-reconnect" type="button">Reconnect</button>
+          <button class="btn-forget" type="button">Forget</button>
+        </div>
+      </div>
+    `;
+    el.querySelector('.name').textContent = this.name;
+    el.querySelector('.battery-summary').addEventListener('click', () => this.toggleExpanded());
+    el.querySelector('.btn-reconnect').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.reconnect();
     });
+    el.querySelector('.btn-forget').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.manager.forget(this.id);
+    });
+    return el;
+  }
 
-    this.device = device;
-    device.addEventListener('gattserverdisconnected', () => this._onDisconnected());
+  toggleExpanded() {
+    this.expanded = !this.expanded;
+    this.el.classList.toggle('expanded', this.expanded);
+    this.el.querySelector('.battery-detail').hidden = !this.expanded;
+    if (this.expanded && this.lastData) this._renderDetail();
+  }
 
-    setStatus(`Connecting to ${device.name || 'device'}…`, 'connecting');
-    log(`Selected: ${device.name || '(no name)'} [${device.id}]`);
+  _setStatus(status, msg) {
+    this.status = status;
+    this.statusMsg = msg;
+    this._renderStatus();
+    this.manager.updateHeader();
+  }
 
-    this.server = await device.gatt.connect();
-    log('GATT connected', 'info');
+  _renderStatus() {
+    const el = this.el;
+    el.querySelector('.status-dot').className = 'status-dot ' + this.status;
+    el.querySelector('.status-msg').textContent = this.statusMsg;
+    const reconnectBtn = el.querySelector('.btn-reconnect');
+    reconnectBtn.disabled = (this.status === 'connecting' || this.status === 'connected');
+  }
 
-    // Sniff which service the device advertises.
-    let service = null;
+  async connect() {
+    if (this.destroyed) return;
+    if (this.status === 'connecting' || this.status === 'connected') return;
+    this._cancelRetry();
+    this._setStatus('connecting', 'Connecting…');
+    log(`[${this.name}] connecting`, 'info');
     try {
-      service = await this.server.getPrimaryService(UUID.daly.service);
-      this.proto = Daly;
-      log('Detected Daly service (0xFFF0)', 'info');
-    } catch (_) { /* try the next one */ }
+      this.server = await this.device.gatt.connect();
 
-    if (!service) {
+      // Sniff which service the device advertises.
+      let service = null;
       try {
-        service = await this.server.getPrimaryService(UUID.jbd.service);
-        this.proto = JBD;
-        log('Detected JBD service (0xFF00)', 'info');
-      } catch (_) { /* nothing matched */ }
+        service = await this.server.getPrimaryService(UUID.daly.service);
+        this.proto = Daly;
+      } catch (_) { /* try next */ }
+      if (!service) {
+        try {
+          service = await this.server.getPrimaryService(UUID.jbd.service);
+          this.proto = JBD;
+        } catch (_) { /* nothing matched */ }
+      }
+      if (!service) throw new Error('Device does not expose a known BMS service.');
+
+      this.notifyChar = await service.getCharacteristic(this.proto.uuid.notify);
+      this.writeChar  = await service.getCharacteristic(this.proto.uuid.write);
+      this.notifyChar.addEventListener('characteristicvaluechanged',
+        (e) => this._onNotification(new Uint8Array(e.target.value.buffer)));
+      await this.notifyChar.startNotifications();
+
+      this.el.querySelector('.type').textContent = this.proto.name;
+      this._setStatus('connected', 'Connected');
+      log(`[${this.name}] connected (${this.proto.name})`, 'info');
+      this.startPolling();
+    } catch (e) {
+      log(`[${this.name}] connect failed: ${e.message}`, 'err');
+      this._setStatus('error', shortenErr(e.message));
+      this._scheduleRetry();
     }
+  }
 
-    if (!service) {
-      throw new Error('Device does not expose a known BMS service (0xFFF0 or 0xFF00).');
+  reconnect() {
+    if (this.device?.gatt?.connected) {
+      try { this.device.gatt.disconnect(); } catch (_) {}
     }
-
-    this.notifyChar = await service.getCharacteristic(this.proto.uuid.notify);
-    this.writeChar  = await service.getCharacteristic(this.proto.uuid.write);
-
-    this.notifyChar.addEventListener('characteristicvaluechanged',
-      (e) => this._onNotification(new Uint8Array(e.target.value.buffer)));
-    await this.notifyChar.startNotifications();
-
-    setStatus(`Connected · ${this.proto.name}`, 'connected');
-    $('devName').textContent = this.device.name || '(unnamed)';
-    $('devType').textContent = this.proto.name;
-    $('emptyState').hidden = true;
-    $('deviceCard').hidden = false;
-    $('btnConnect').disabled = true;
-    $('btnDisconnect').disabled = false;
-    $('btnRefresh').disabled = false;
-    toast('Connected. Polling started.');
-
-    this.startPolling();
+    this._cancelRetry();
+    this._cleanup();
+    this.connect();
   }
 
   startPolling(intervalMs = 2500) {
@@ -611,13 +710,9 @@ class BMSConnection {
     const tick = async () => {
       if (this.pollBusy || !this.server?.connected) return;
       this.pollBusy = true;
-      try {
-        await this.pollOnce();
-      } catch (e) {
-        log(`poll error: ${e.message}`, 'err');
-      } finally {
-        this.pollBusy = false;
-      }
+      try { await this.pollOnce(); }
+      catch (e) { log(`[${this.name}] poll error: ${e.message}`, 'err'); }
+      finally { this.pollBusy = false; }
     };
     tick();
     this.pollTimer = setInterval(tick, intervalMs);
@@ -632,14 +727,17 @@ class BMSConnection {
     const send = (frame) => this._writeFrame(frame);
     const recv = (frame, timeoutMs) => this._request(frame, timeoutMs);
     const data = await this.proto.update(send, recv);
-    renderData(data);
-    $('devUpdated').textContent = new Date().toLocaleTimeString();
+    this.lastData = data;
+    this.lastUpdate = new Date();
+    this._renderSummary();
+    if (this.expanded) this._renderDetail();
+    this.el.querySelector('.last-update').textContent =
+      `Updated ${this.lastUpdate.toLocaleTimeString()}`;
   }
 
   // Send a request frame and wait for the next valid response.
   async _request(frame, timeoutMs = 1500) {
     if (this.pending) {
-      // serialise: wait for the previous request to resolve/timeout first
       try { await this.pending.promise; } catch (_) {}
     }
     this.buffer = [];
@@ -651,14 +749,12 @@ class BMSConnection {
     }, timeoutMs);
     this.pending = { resolve, reject, timer, promise };
 
-    log(`TX ${hex(frame)}`, 'tx');
+    log(`[${this.name}] TX ${hex(frame)}`, 'tx');
     await this._writeFrame(frame);
     return promise;
   }
 
   async _writeFrame(frame) {
-    // writeWithoutResponse is faster and matches what the reference firmware expects;
-    // fall back to writeValue if the characteristic doesn't support it.
     try {
       if (this.writeChar.writeValueWithoutResponse) {
         await this.writeChar.writeValueWithoutResponse(frame);
@@ -666,20 +762,17 @@ class BMSConnection {
         await this.writeChar.writeValue(frame);
       }
     } catch (e) {
-      // Some stacks reject WWR; retry with the acknowledged write.
       await this.writeChar.writeValue(frame);
     }
   }
 
   _onNotification(chunk) {
-    log(`RX ${hex(chunk)}`, 'rx');
+    log(`[${this.name}] RX ${hex(chunk)}`, 'rx');
     if (!this.pending) return;
     for (const b of chunk) this.buffer.push(b);
-    const buf = Uint8Array.from(this.buffer);
 
-    // Trim leading garbage until we find a valid header.
     if (this.proto === Daly) {
-      while (buf.length >= 2 && (buf[0] !== 0xD2 || buf[1] !== 0x03)) {
+      while (this.buffer.length >= 2 && (this.buffer[0] !== 0xD2 || this.buffer[1] !== 0x03)) {
         this.buffer.shift();
       }
     } else if (this.proto === JBD) {
@@ -690,7 +783,7 @@ class BMSConnection {
     const aligned = Uint8Array.from(this.buffer);
     if (!this.proto.isComplete(aligned)) return;
     if (!this.proto.validate(aligned)) {
-      log('frame failed CRC check, discarding', 'err');
+      log(`[${this.name}] frame failed CRC, discarding`, 'err');
       this.buffer = [];
       return;
     }
@@ -701,161 +794,294 @@ class BMSConnection {
     p.resolve(aligned);
   }
 
-  async disconnect() {
-    this.stopPolling();
-    try { await this.notifyChar?.stopNotifications(); } catch (_) {}
-    if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+  _onDisconnected() {
+    if (this.destroyed) return;
+    log(`[${this.name}] GATT disconnected`, 'err');
     this._cleanup();
-    setStatus('Idle');
-    toast('Disconnected.');
+    this._setStatus('disconnected', 'Disconnected');
+    this._scheduleRetry();
   }
 
-  _onDisconnected() {
-    log('GATT disconnected', 'err');
-    this.stopPolling();
-    this._cleanup();
-    setStatus('Disconnected', 'error');
+  _scheduleRetry(ms = 30000) {
+    if (this.destroyed) return;
+    this._cancelRetry();
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.connect();
+    }, ms);
+  }
+  _cancelRetry() {
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
   }
 
   _cleanup() {
+    this.stopPolling();
     this.notifyChar = null;
-    this.writeChar = null;
-    this.proto = null;
+    this.writeChar  = null;
     this.buffer = [];
     if (this.pending) {
       clearTimeout(this.pending.timer);
       this.pending.reject(new Error('disconnected'));
       this.pending = null;
     }
-    $('btnConnect').disabled = false;
-    $('btnDisconnect').disabled = true;
-    $('btnRefresh').disabled = true;
   }
-}
 
-// ─── Rendering ────────────────────────────────────────────────────────────────
-
-function renderData(d) {
-  $('statsCard').hidden = false;
-  $('cellsCard').hidden = false;
-  $('tempsCard').hidden = false;
-  $('flagsCard').hidden = false;
-
-  const fmt = (n, dp) => Number.isFinite(n) ? n.toFixed(dp) : '—';
-
-  $('sVolt').textContent = fmt(d.voltage, 2);
-  $('sCur').textContent  = fmt(d.current, 2);
-  $('sPwr').textContent  = fmt(d.voltage * d.current, 1);
-  $('sSoc').textContent  = fmt(d.soc, 1);
-  $('sCap').textContent  = fmt(d.capacity, 2);
-  $('sCyc').textContent  = d.cycles ?? '—';
-
-  const pct = Math.max(0, Math.min(100, d.soc || 0));
-  $('sSocBar').style.width = pct + '%';
-  $('sSocBar').style.background =
-    pct < 20 ? 'var(--bad)' : pct < 50 ? 'var(--warn)' : 'var(--good)';
-
-  const curStat = $('sCurStat');
-  curStat.classList.toggle('charging',    d.current > 0.05);
-  curStat.classList.toggle('discharging', d.current < -0.05);
-
-  // Cells
-  const cellsEl = $('cells');
-  cellsEl.innerHTML = '';
-  if (d.cells.length) {
-    const minV = Math.min(...d.cells);
-    const maxV = Math.max(...d.cells);
-    const range = Math.max(0.001, maxV - minV);
-    const balancingSet = new Set(d.balancing || []);
-
-    for (let i = 0; i < d.cells.length; i++) {
-      const v = d.cells[i];
-      // Visual scale: 2.5 V (empty) → 3.65 V (full LFP) for the bar fill.
-      const fill = Math.max(0, Math.min(1, (v - 2.5) / (3.65 - 2.5)));
-      const row = document.createElement('div');
-      row.className = 'cell';
-      if (v === maxV && range > 0.01) row.classList.add('high');
-      if (v === minV && range > 0.01) row.classList.add('low');
-      const bal = balancingSet.has(i) ? ' balancing' : '';
-      row.innerHTML = `
-        <div class="idx">${String(i + 1).padStart(2, '0')}</div>
-        <div class="bar${bal}"><div style="width:${(fill * 100).toFixed(1)}%"></div></div>
-        <div class="v">${v.toFixed(3)} V</div>`;
-      cellsEl.appendChild(row);
+  async destroy() {
+    this.destroyed = true;
+    this._cancelRetry();
+    this._cleanup();
+    try { this.device.removeEventListener('gattserverdisconnected', this._onGattDisc); } catch (_) {}
+    if (this.device.gatt?.connected) {
+      try { this.device.gatt.disconnect(); } catch (_) {}
     }
-    $('cellsMeta').textContent =
-      `(${d.cells.length} · Δ ${(range * 1000).toFixed(0)} mV · min ${minV.toFixed(3)} · max ${maxV.toFixed(3)})`;
-  } else {
-    cellsEl.innerHTML = '<div style="color:var(--muted);font-size:13px">No cell data.</div>';
-    $('cellsMeta').textContent = '';
+    this.el.remove();
   }
 
-  // Temperatures
-  const tEl = $('temps');
-  tEl.innerHTML = '';
-  if (d.temps && d.temps.length) {
-    for (const t of d.temps) {
-      const el = document.createElement('div');
-      el.className = 'temp';
-      el.innerHTML = `<span class="lab">${t.label}</span>${t.c.toFixed(1)} °C`;
-      tEl.appendChild(el);
+  _renderSummary() {
+    const d = this.lastData;
+    if (!d) return;
+    const el = this.el;
+    const fmt = (n, dp) => Number.isFinite(n) ? n.toFixed(dp) : '—';
+
+    el.querySelector('.qs-volt').textContent = fmt(d.voltage, 2);
+    const curStr = (Number.isFinite(d.current) && d.current >= 0 ? '+' : '') + fmt(d.current, 1);
+    el.querySelector('.qs-cur').textContent = curStr;
+    el.querySelector('.qs-soc').textContent = fmt(d.soc, 0);
+
+    const qsCur = el.querySelector('.qs-cur-wrap');
+    qsCur.classList.toggle('charging',    d.current > 0.05);
+    qsCur.classList.toggle('discharging', d.current < -0.05);
+  }
+
+  _renderDetail() {
+    const d = this.lastData;
+    if (!d) return;
+    const el = this.el;
+    const fmt = (n, dp) => Number.isFinite(n) ? n.toFixed(dp) : '—';
+
+    el.querySelector('.d-volt').textContent = fmt(d.voltage, 2);
+    el.querySelector('.d-cur').textContent  = fmt(d.current, 2);
+    el.querySelector('.d-pwr').textContent  = fmt(d.voltage * d.current, 1);
+    el.querySelector('.d-soc').textContent  = fmt(d.soc, 1);
+    el.querySelector('.d-cap').textContent  = fmt(d.capacity, 2);
+    el.querySelector('.d-cyc').textContent  = d.cycles ?? '—';
+
+    const pct = Math.max(0, Math.min(100, d.soc || 0));
+    const socbar = el.querySelector('.d-socbar');
+    socbar.style.width = pct + '%';
+    socbar.style.background =
+      pct < 20 ? 'var(--bad)' : pct < 50 ? 'var(--warn)' : 'var(--good)';
+
+    const curStat = el.querySelector('.d-cur-stat');
+    curStat.classList.toggle('charging',    d.current > 0.05);
+    curStat.classList.toggle('discharging', d.current < -0.05);
+
+    // Cells
+    const cellsEl = el.querySelector('.cells');
+    cellsEl.innerHTML = '';
+    if (d.cells.length) {
+      const minV = Math.min(...d.cells);
+      const maxV = Math.max(...d.cells);
+      const range = Math.max(0.001, maxV - minV);
+      const balancingSet = new Set(d.balancing || []);
+      for (let i = 0; i < d.cells.length; i++) {
+        const v = d.cells[i];
+        // Visual scale: 2.5 V (empty) → 3.65 V (full LFP) for the bar fill.
+        const fill = Math.max(0, Math.min(1, (v - 2.5) / (3.65 - 2.5)));
+        const row = document.createElement('div');
+        row.className = 'cell';
+        if (v === maxV && range > 0.01) row.classList.add('high');
+        if (v === minV && range > 0.01) row.classList.add('low');
+        const bal = balancingSet.has(i) ? ' balancing' : '';
+        row.innerHTML = `
+          <div class="idx">${String(i + 1).padStart(2, '0')}</div>
+          <div class="bar${bal}"><div style="width:${(fill * 100).toFixed(1)}%"></div></div>
+          <div class="v">${v.toFixed(3)} V</div>`;
+        cellsEl.appendChild(row);
+      }
+      el.querySelector('.cells-meta').textContent =
+        `(${d.cells.length} · Δ ${(range * 1000).toFixed(0)} mV · min ${minV.toFixed(3)} · max ${maxV.toFixed(3)})`;
+    } else {
+      cellsEl.innerHTML = '<div class="muted-hint">No cell data.</div>';
+      el.querySelector('.cells-meta').textContent = '';
     }
-  } else {
-    tEl.innerHTML = '<div style="color:var(--muted);font-size:13px">No temperature sensors reported.</div>';
-  }
 
-  // Flags
-  const fEl = $('flags');
-  fEl.innerHTML = '';
-  const addFlag = (label, kind) => {
-    const e = document.createElement('span');
-    e.className = 'flag ' + kind;
-    e.textContent = label;
-    fEl.appendChild(e);
-  };
-  addFlag(d.chargeMos    ? 'Charge MOS ON'    : 'Charge MOS OFF',    d.chargeMos    ? 'on' : 'off');
-  addFlag(d.dischargeMos ? 'Discharge MOS ON' : 'Discharge MOS OFF', d.dischargeMos ? 'on' : 'off');
-  if (d.balancing && d.balancing.length) {
-    addFlag(`Balancing: ${d.balancing.map(i => i + 1).join(',')}`, 'warn');
-  } else {
-    addFlag('Not balancing', 'off');
-  }
-  if (d.problem && d.problem !== 0) {
-    addFlag(`Protection: 0x${d.problem.toString(16).toUpperCase()}`, 'warn');
-  } else {
-    addFlag('No protection active', 'on');
+    // Temperatures
+    const tEl = el.querySelector('.temps');
+    tEl.innerHTML = '';
+    if (d.temps && d.temps.length) {
+      for (const t of d.temps) {
+        const tt = document.createElement('div');
+        tt.className = 'temp';
+        tt.innerHTML = `<span class="lab">${t.label}</span>${t.c.toFixed(1)} °C`;
+        tEl.appendChild(tt);
+      }
+    } else {
+      tEl.innerHTML = '<div class="muted-hint">No temperature sensors reported.</div>';
+    }
+
+    // Flags
+    const fEl = el.querySelector('.flags');
+    fEl.innerHTML = '';
+    const addFlag = (label, kind) => {
+      const e = document.createElement('span');
+      e.className = 'flag ' + kind;
+      e.textContent = label;
+      fEl.appendChild(e);
+    };
+    addFlag(d.chargeMos    ? 'Charge MOS ON'    : 'Charge MOS OFF',    d.chargeMos    ? 'on' : 'off');
+    addFlag(d.dischargeMos ? 'Discharge MOS ON' : 'Discharge MOS OFF', d.dischargeMos ? 'on' : 'off');
+    if (d.balancing && d.balancing.length) {
+      addFlag(`Balancing: ${d.balancing.map(i => i + 1).join(',')}`, 'warn');
+    } else {
+      addFlag('Not balancing', 'off');
+    }
+    if (d.problem && d.problem !== 0) {
+      addFlag(`Protection: 0x${d.problem.toString(16).toUpperCase()}`, 'warn');
+    } else {
+      addFlag('No protection active', 'on');
+    }
   }
 }
 
-// ─── Wire up UI ───────────────────────────────────────────────────────────────
-
-const conn = new BMSConnection();
-
-$('btnConnect').addEventListener('click', async () => {
-  try {
-    await conn.scanAndConnect();
-  } catch (e) {
-    log(e.message, 'err');
-    setStatus('Error', 'error');
-    toast(e.message, true);
-  }
-});
-
-$('btnDisconnect').addEventListener('click', () => conn.disconnect());
-
-$('btnRefresh').addEventListener('click', async () => {
-  if (conn.pollBusy) return;
-  conn.pollBusy = true;
-  try { await conn.pollOnce(); }
-  catch (e) { log(`refresh: ${e.message}`, 'err'); toast(e.message, true); }
-  finally { conn.pollBusy = false; }
-});
-
-if (!('bluetooth' in navigator)) {
-  setStatus('Web Bluetooth unavailable', 'error');
-  $('btnConnect').disabled = true;
-  toast('This browser does not support Web Bluetooth. Try Chrome on Android.', true);
+function shortenErr(msg) {
+  if (!msg) return 'Error';
+  // Common Web BT error string is verbose; trim to the gist.
+  if (msg.length > 60) return msg.slice(0, 57) + '…';
+  return msg;
 }
+
+// ─── Manager (all batteries) ─────────────────────────────────────────────────
+
+class Manager {
+  constructor() {
+    this.batteries = new Map(); // device.id → Battery
+    this.listEl = $('batteryList');
+  }
+
+  async init() {
+    if (!('bluetooth' in navigator)) {
+      $('emptyState').innerHTML = `
+        <h3>Web Bluetooth unavailable</h3>
+        <p>This browser does not support Web Bluetooth. Try Chrome on Android, or desktop Chrome over HTTPS.</p>`;
+      $('btnAdd').disabled = true;
+      $('btnRefresh').disabled = true;
+      return;
+    }
+
+    if (typeof navigator.bluetooth.getDevices !== 'function') {
+      log('navigator.bluetooth.getDevices() unavailable — auto-reconnect disabled. Pair manually each visit.', 'err');
+      this.updateHeader();
+      return;
+    }
+
+    let known = [];
+    try {
+      known = await navigator.bluetooth.getDevices();
+    } catch (e) {
+      log(`getDevices() failed: ${e.message}`, 'err');
+    }
+    log(`${known.length} previously paired device(s)`, 'info');
+
+    for (let i = 0; i < known.length; i++) {
+      const dev = known[i];
+      const bat = new Battery(dev, this);
+      this.batteries.set(dev.id, bat);
+      this.listEl.appendChild(bat.el);
+      // Stagger initial connect so we don't hammer the radio with N parallel GATT connects.
+      setTimeout(() => bat.connect(), i * 400);
+    }
+
+    this._updateEmptyState();
+    this.updateHeader();
+  }
+
+  async addNew() {
+    try {
+      const device = await navigator.bluetooth.requestDevice(REQUEST_FILTERS);
+
+      if (this.batteries.has(device.id)) {
+        toast(`${device.name || 'Device'} is already paired.`);
+        // Make sure it tries to connect anyway in case it was offline.
+        this.batteries.get(device.id).connect();
+        return;
+      }
+
+      const bat = new Battery(device, this);
+      this.batteries.set(device.id, bat);
+      this.listEl.appendChild(bat.el);
+      this._updateEmptyState();
+      bat.connect();
+      this.updateHeader();
+    } catch (e) {
+      if (e.name === 'NotFoundError') {
+        log('User cancelled chooser', 'info');
+      } else {
+        log(`addNew failed: ${e.message}`, 'err');
+        toast(e.message, true);
+      }
+    }
+  }
+
+  async forget(id) {
+    const bat = this.batteries.get(id);
+    if (!bat) return;
+    if (!confirm(`Forget "${bat.name}"? You'll need to pair it again next time.`)) return;
+
+    try {
+      if (typeof bat.device.forget === 'function') {
+        await bat.device.forget();
+      }
+    } catch (e) {
+      log(`forget failed: ${e.message}`, 'err');
+    }
+    await bat.destroy();
+    this.batteries.delete(id);
+    this._updateEmptyState();
+    this.updateHeader();
+    toast(`Forgot ${bat.name}`);
+  }
+
+  refreshAll() {
+    let kicked = 0;
+    for (const b of this.batteries.values()) {
+      if (b.status === 'connected') {
+        if (!b.pollBusy) {
+          b.pollOnce().catch(e => log(`[${b.name}] refresh: ${e.message}`, 'err'));
+          kicked++;
+        }
+      } else if (b.status === 'error' || b.status === 'disconnected' || b.status === 'idle') {
+        b.connect();
+        kicked++;
+      }
+    }
+    if (kicked === 0) toast('Nothing to refresh.');
+  }
+
+  updateHeader() {
+    const total = this.batteries.size;
+    let connected = 0;
+    for (const b of this.batteries.values()) if (b.status === 'connected') connected++;
+    $('headerSummary').textContent = total === 0
+      ? 'No batteries'
+      : `${connected}/${total} connected`;
+  }
+
+  _updateEmptyState() {
+    const empty = this.batteries.size === 0;
+    $('emptyState').hidden = !empty;
+    $('batteryList').hidden = empty;
+  }
+}
+
+// ─── Wire up ─────────────────────────────────────────────────────────────────
+
+const mgr = new Manager();
+
+$('btnAdd').addEventListener('click', () => mgr.addNew());
+$('btnRefresh').addEventListener('click', () => mgr.refreshAll());
+
+mgr.init();
 </script>
 
 </body>
