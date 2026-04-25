@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0b1220" />
+<title>BLE Battery Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%F0%9F%94%8B%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg-2: #111a2e;
+    --card: #18223b;
+    --card-2: #1f2c4d;
+    --line: #2a3a63;
+    --text: #e6ebf5;
+    --muted: #93a0bf;
+    --accent: #4f8cff;
+    --good: #2ecc71;
+    --warn: #f1c40f;
+    --bad: #ff5c5c;
+    --idle: #6b7a99;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+    border-bottom: 1px solid var(--line);
+    padding: 12px 16px calc(12px + env(safe-area-inset-top)) 16px;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.2px; flex: 1; }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--idle); box-shadow: 0 0 0 2px rgba(255,255,255,0.05);
+    transition: background 0.3s;
+  }
+  .status-dot.connecting { background: var(--warn); animation: pulse 1s infinite; }
+  .status-dot.connected  { background: var(--good); }
+  .status-dot.error      { background: var(--bad); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .status-text { font-size: 13px; color: var(--muted); }
+
+  main { padding: 14px; max-width: 720px; margin: 0 auto; }
+
+  .actions { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  button {
+    appearance: none; border: 1px solid var(--line); background: var(--card);
+    color: var(--text); border-radius: 10px; padding: 10px 14px;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  }
+  button:hover:not(:disabled) { background: var(--card-2); border-color: var(--accent); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: #6ba2ff; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin: 0 0 10px 0;
+  }
+
+  .device-row { display: flex; justify-content: space-between; gap: 10px; }
+  .device-row + .device-row { margin-top: 6px; }
+  .device-row .k { color: var(--muted); }
+  .device-row .v { font-family: var(--mono); font-size: 13px; }
+
+  .grid {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .stat {
+    background: var(--card-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 12px;
+  }
+  .stat .label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.6px; margin-bottom: 4px;
+  }
+  .stat .value {
+    font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .stat .unit { font-size: 12px; color: var(--muted); margin-left: 3px; font-weight: 400; }
+  .stat.charging .value { color: var(--good); }
+  .stat.discharging .value { color: var(--warn); }
+
+  .soc-bar {
+    margin-top: 8px; height: 6px; background: rgba(255,255,255,0.06);
+    border-radius: 3px; overflow: hidden;
+  }
+  .soc-bar > div { height: 100%; background: var(--good); transition: width 0.4s; }
+
+  .cells { display: grid; gap: 6px; grid-template-columns: 1fr; }
+  .cell {
+    display: grid; grid-template-columns: 32px 1fr 70px;
+    align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .cell .idx { color: var(--muted); text-align: right; }
+  .cell .bar {
+    height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden;
+    position: relative;
+  }
+  .cell .bar > div {
+    height: 100%; background: linear-gradient(90deg, #4f8cff, #6ba2ff);
+    transition: width 0.4s;
+  }
+  .cell .bar.balancing > div { background: linear-gradient(90deg, var(--warn), #ffe06b); }
+  .cell .v { text-align: right; font-variant-numeric: tabular-nums; }
+  .cell.high .v { color: var(--good); }
+  .cell.low .v { color: var(--bad); }
+
+  .temps { display: flex; flex-wrap: wrap; gap: 8px; }
+  .temp {
+    background: var(--card-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 6px 10px; font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .temp .lab { color: var(--muted); margin-right: 4px; font-size: 11px; text-transform: uppercase; }
+
+  .flags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .flag {
+    padding: 4px 10px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--line); background: var(--card-2); color: var(--muted);
+  }
+  .flag.on  { background: rgba(46,204,113,0.15); border-color: rgba(46,204,113,0.4); color: #79e6a8; }
+  .flag.off { background: rgba(255,92,92,0.12); border-color: rgba(255,92,92,0.4); color: #ff9090; }
+  .flag.warn{ background: rgba(241,196,15,0.15); border-color: rgba(241,196,15,0.4); color: #ffe06b; }
+
+  .empty {
+    text-align: center; padding: 36px 16px; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 14px; background: var(--card);
+  }
+  .empty h3 { margin: 0 0 6px 0; color: var(--text); font-size: 16px; font-weight: 600; }
+  .empty p { margin: 4px 0; font-size: 13px; }
+
+  details.log { margin-top: 16px; }
+  details.log summary {
+    cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0;
+    user-select: none;
+  }
+  .log-output {
+    background: #0a0f1c; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; max-height: 220px; overflow: auto;
+    font-family: var(--mono); font-size: 11px; color: #b6c4e0;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log-output .rx { color: #79e6a8; }
+  .log-output .tx { color: #6ba2ff; }
+  .log-output .err { color: #ff9090; }
+  .log-output .info { color: var(--muted); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 16px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    max-width: 90vw;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { border-color: var(--bad); color: #ff9090; }
+
+  .footer-note {
+    color: var(--muted); font-size: 11px; text-align: center;
+    margin: 24px 0 8px 0; line-height: 1.5;
+  }
+
+  @media (min-width: 600px) {
+    .cells { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+  <h1>BLE Battery Monitor</h1>
+  <span id="statusText" class="status-text">Idle</span>
+</header>
+
+<main>
+  <div class="actions">
+    <button id="btnConnect" class="primary">🔌 Scan & Connect</button>
+    <button id="btnDisconnect" disabled>Disconnect</button>
+    <button id="btnRefresh" disabled>↻ Refresh now</button>
+  </div>
+
+  <div id="emptyState" class="empty">
+    <h3>No device connected</h3>
+    <p>Tap <b>Scan & Connect</b> to look for a battery.</p>
+    <p>Supported: Daly Smart BMS (K/H/M/S series, name starts with <code>DL-</code>) and JBD / Xiaoxiang / DCHouse BMS (service <code>0xFF00</code>).</p>
+    <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost.</p>
+  </div>
+
+  <div id="deviceCard" class="card" hidden>
+    <h2>Device</h2>
+    <div class="device-row"><span class="k">Name</span><span class="v" id="devName">—</span></div>
+    <div class="device-row"><span class="k">Type</span><span class="v" id="devType">—</span></div>
+    <div class="device-row"><span class="k">Last update</span><span class="v" id="devUpdated">—</span></div>
+  </div>
+
+  <div id="statsCard" class="card" hidden>
+    <h2>Pack</h2>
+    <div class="grid">
+      <div class="stat"><div class="label">Voltage</div><div class="value"><span id="sVolt">—</span><span class="unit">V</span></div></div>
+      <div class="stat" id="sCurStat"><div class="label">Current</div><div class="value"><span id="sCur">—</span><span class="unit">A</span></div></div>
+      <div class="stat"><div class="label">Power</div><div class="value"><span id="sPwr">—</span><span class="unit">W</span></div></div>
+      <div class="stat">
+        <div class="label">SOC</div>
+        <div class="value"><span id="sSoc">—</span><span class="unit">%</span></div>
+        <div class="soc-bar"><div id="sSocBar" style="width:0%"></div></div>
+      </div>
+      <div class="stat"><div class="label">Capacity</div><div class="value"><span id="sCap">—</span><span class="unit">Ah</span></div></div>
+      <div class="stat"><div class="label">Cycles</div><div class="value" id="sCyc">—</div></div>
+    </div>
+  </div>
+
+  <div id="cellsCard" class="card" hidden>
+    <h2>Cells <span id="cellsMeta" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px"></span></h2>
+    <div id="cells" class="cells"></div>
+  </div>
+
+  <div id="tempsCard" class="card" hidden>
+    <h2>Temperatures</h2>
+    <div id="temps" class="temps"></div>
+  </div>
+
+  <div id="flagsCard" class="card" hidden>
+    <h2>State</h2>
+    <div id="flags" class="flags"></div>
+  </div>
+
+  <details class="log">
+    <summary>Debug log</summary>
+    <div id="log" class="log-output"></div>
+  </details>
+
+  <div class="footer-note">
+    Web Bluetooth · No data leaves your device.
+  </div>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+'use strict';
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+const $ = (id) => document.getElementById(id);
+const hex = (b) => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ');
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const log = (msg, cls = 'info') => {
+  const el = $('log');
+  const ts = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.className = cls;
+  line.textContent = `[${ts}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+};
+
+const toast = (msg, isError = false) => {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 3500);
+};
+
+const setStatus = (text, kind = '') => {
+  $('statusText').textContent = text;
+  $('statusDot').className = 'status-dot' + (kind ? ' ' + kind : '');
+};
+
+// CRC-16 Modbus (Daly)
+function crcModbus(data) {
+  let crc = 0xFFFF;
+  for (const b of data) {
+    crc ^= b;
+    for (let i = 0; i < 8; i++) {
+      crc = (crc & 1) ? (crc >>> 1) ^ 0xA001 : (crc >>> 1);
+    }
+  }
+  return crc & 0xFFFF;
+}
+
+// JBD checksum: 0x10000 - sum(bytes)
+function jbdChecksum(data) {
+  let s = 0;
+  for (const b of data) s += b;
+  return (0x10000 - s) & 0xFFFF;
+}
+
+// Read big-endian unsigned/signed integer
+function readU16BE(arr, off) { return (arr[off] << 8) | arr[off + 1]; }
+function readS16BE(arr, off) { const v = readU16BE(arr, off); return v >= 0x8000 ? v - 0x10000 : v; }
+
+// ─── Standard BLE UUIDs (full 128-bit form) ───────────────────────────────────
+
+const UUID = {
+  daly: {
+    service: '0000fff0-0000-1000-8000-00805f9b34fb',
+    notify:  '0000fff1-0000-1000-8000-00805f9b34fb',
+    write:   '0000fff2-0000-1000-8000-00805f9b34fb',
+  },
+  jbd: {
+    service: '0000ff00-0000-1000-8000-00805f9b34fb',
+    notify:  '0000ff01-0000-1000-8000-00805f9b34fb',
+    write:   '0000ff02-0000-1000-8000-00805f9b34fb',
+  },
+};
+
+// ─── Daly K/H/M/S Modbus protocol (D2 03 …) ───────────────────────────────────
+// Reference: aiobmsble/bms/daly_bms.py (Apache-2.0)
+
+const Daly = {
+  name: 'Daly Smart BMS',
+  uuid: UUID.daly,
+
+  // Pre-built request frames (CRC-16 modbus, little-endian appended).
+  CMD_INFO:    new Uint8Array([0xD2, 0x03, 0x00, 0x00, 0x00, 0x3E, 0xD7, 0xB9]),
+  CMD_MOSTEMP: new Uint8Array([0xD2, 0x03, 0x00, 0x3E, 0x00, 0x09, 0xF7, 0xA3]),
+
+  // Recognise a complete response: D2 03 [len] [len bytes] [crc lo] [crc hi]
+  isComplete(buf) {
+    if (buf.length < 5) return false;
+    if (buf[0] !== 0xD2 || buf[1] !== 0x03) return false;
+    return buf.length >= buf[2] + 5;
+  },
+
+  validate(buf) {
+    if (buf.length !== buf[2] + 5) return false;
+    const calc = crcModbus(buf.subarray(0, buf.length - 2));
+    const got = buf[buf.length - 2] | (buf[buf.length - 1] << 8);
+    return calc === got;
+  },
+
+  // Parse the 129-byte main info frame. data offset = byte index - 3.
+  parseInfo(buf) {
+    if (buf.length < 129) return null;
+    const d = (off) => readU16BE(buf, 3 + off);
+
+    const cellCount = Math.min(d(98), 32);
+    const tempCount = Math.min(d(100), 8);
+
+    const cells = [];
+    for (let i = 0; i < cellCount; i++) {
+      const mv = d(i * 2);
+      if (mv > 0) cells.push(mv / 1000);
+    }
+
+    const temps = [];
+    for (let i = 0; i < tempCount; i++) {
+      const raw = readU16BE(buf, 3 + 64 + i * 2);
+      // Daly K-series: signed 16-bit, offset 40 → °C.
+      const v = (raw >= 0x8000 ? raw - 0x10000 : raw) - 40;
+      temps.push({ label: `T${i + 1}`, c: v });
+    }
+
+    const balanceBits = d(104);     // bit n set → cell n+1 balancing
+    const balancing = [];
+    for (let i = 0; i < cellCount; i++) if (balanceBits & (1 << i)) balancing.push(i);
+
+    return {
+      voltage: d(80) / 10,
+      current: (d(82) - 30000) / 10,
+      soc:     d(84) / 10,
+      capacity:d(96) / 10,
+      cellCount,
+      tempCount,
+      cycles:  d(102),
+      delta:   d(112) / 1000,
+      problem: d(116),                           // first 16 bits of 64-bit code
+      chargeMos:    !!d(106),
+      dischargeMos: !!d(108),
+      balancing,
+      cells,
+      temps,
+    };
+  },
+
+  parseMosTemp(buf) {
+    // MOS temp lives at byte 11 (data offset 8), signed BE, offset 40 → °C.
+    if (buf.length < 13) return null;
+    const raw = readU16BE(buf, 11);
+    if (raw === 0x0000 || raw === 0xFFFF) return null;
+    const v = (raw >= 0x8000 ? raw - 0x10000 : raw) - 40;
+    return { label: 'MOS', c: v };
+  },
+
+  async update(send, recv) {
+    let mosTemp = null;
+    try {
+      const m = await recv(this.CMD_MOSTEMP, 800);
+      if (m) mosTemp = this.parseMosTemp(m);
+    } catch (_) { /* MOS info isn't supported on every model — non-fatal. */ }
+
+    const info = await recv(this.CMD_INFO, 1500);
+    const parsed = this.parseInfo(info);
+    if (!parsed) throw new Error(`Daly: short response (${info.length}B)`);
+    if (mosTemp) parsed.temps.unshift(mosTemp);
+    return parsed;
+  },
+};
+
+// ─── JBD / Xiaoxiang / DCHouse protocol (DD A5 …) ─────────────────────────────
+// Reference: aiobmsble/bms/jbd_bms.py (Apache-2.0)
+
+const JBD = {
+  name: 'JBD / Xiaoxiang / DCHouse BMS',
+  uuid: UUID.jbd,
+
+  buildCmd(cmd, payload = new Uint8Array(0)) {
+    // DD A5 [cmd] [len] [payload] [crc hi] [crc lo] 77
+    const body = new Uint8Array(2 + payload.length); // cmd, len, payload (for crc)
+    body[0] = cmd;
+    body[1] = payload.length;
+    body.set(payload, 2);
+    const crc = jbdChecksum(body);
+    const out = new Uint8Array(4 + payload.length + 3);
+    out[0] = 0xDD; out[1] = 0xA5;
+    out.set(body, 2);
+    out[out.length - 3] = (crc >> 8) & 0xFF;
+    out[out.length - 2] = crc & 0xFF;
+    out[out.length - 1] = 0x77;
+    return out;
+  },
+
+  isComplete(buf) {
+    // Response: DD [cmd] [status] [len] [data...] [crc hi] [crc lo] 77
+    if (buf.length < 7) return false;
+    if (buf[0] !== 0xDD) return false;
+    const expected = 7 + buf[3];
+    return buf.length >= expected;
+  },
+
+  validate(buf) {
+    const expected = 7 + buf[3];
+    if (buf.length !== expected) return false;
+    if (buf[buf.length - 1] !== 0x77) return false;
+    if (buf[2] !== 0x00) return false; // status: 0 = OK
+    const crcCalc = jbdChecksum(buf.subarray(2, buf.length - 3));
+    const crcGot  = (buf[buf.length - 3] << 8) | buf[buf.length - 2];
+    return crcCalc === crcGot;
+  },
+
+  parseBasic(buf) {
+    // data starts at byte 4
+    const u = (off) => readU16BE(buf, 4 + off);
+    const s = (off) => readS16BE(buf, 4 + off);
+    const tempCount = buf[4 + 22];
+    const temps = [];
+    for (let i = 0; i < tempCount; i++) {
+      const raw = readU16BE(buf, 4 + 23 + i * 2); // 0.1 K
+      temps.push({ label: `T${i + 1}`, c: (raw - 2731) / 10 });
+    }
+    const balLow  = u(12);
+    const balHigh = u(14);
+    const balance = (balHigh << 16) | balLow; // swap32 in reference
+
+    const mosByte = buf[4 + 20];
+    return {
+      voltage: u(0) / 100,
+      current: s(2) / 100,
+      capacity: u(4) / 100,
+      designCap: u(6) / 100,
+      cycles: u(8),
+      balanceMask: balance,
+      problem: u(16),
+      soc: buf[4 + 19],
+      chargeMos:    !!(mosByte & 0x01),
+      dischargeMos: !!(mosByte & 0x02),
+      cellCount: buf[4 + 21],
+      tempCount,
+      temps,
+    };
+  },
+
+  parseCells(buf) {
+    // data is N pairs of big-endian mV
+    const n = buf[3] / 2;
+    const cells = [];
+    for (let i = 0; i < n; i++) {
+      const mv = readU16BE(buf, 4 + i * 2);
+      if (mv > 0) cells.push(mv / 1000);
+    }
+    return cells;
+  },
+
+  async update(send, recv) {
+    const basicReq = this.buildCmd(0x03);
+    const cellReq  = this.buildCmd(0x04);
+
+    const basic = this.parseBasic(await recv(basicReq, 1500));
+    const cells = this.parseCells(await recv(cellReq, 1500));
+
+    const balancing = [];
+    for (let i = 0; i < cells.length; i++) {
+      if (basic.balanceMask & (1 << i)) balancing.push(i);
+    }
+    return { ...basic, cells, balancing };
+  },
+};
+
+// ─── Connection manager ───────────────────────────────────────────────────────
+
+class BMSConnection {
+  constructor() {
+    this.device = null;
+    this.server = null;
+    this.proto = null;
+    this.notifyChar = null;
+    this.writeChar = null;
+    this.buffer = [];
+    this.pending = null;       // { resolve, reject, timer }
+    this.pollTimer = null;
+    this.pollBusy = false;
+  }
+
+  async scanAndConnect() {
+    if (!('bluetooth' in navigator)) {
+      throw new Error('Web Bluetooth not supported. Use Android Chrome (or desktop Chrome) over HTTPS.');
+    }
+
+    setStatus('Requesting device…', 'connecting');
+    log('Opening device chooser', 'info');
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [
+        { namePrefix: 'DL-' },
+        { namePrefix: 'JBD-' },
+        { namePrefix: 'DWF' },
+        { namePrefix: 'SX1' },
+        { namePrefix: 'SX60' },
+        { namePrefix: 'SBL-' },
+        { namePrefix: 'OGR-' },
+        { services: [UUID.daly.service] },
+        { services: [UUID.jbd.service] },
+      ],
+      optionalServices: [UUID.daly.service, UUID.jbd.service],
+    });
+
+    this.device = device;
+    device.addEventListener('gattserverdisconnected', () => this._onDisconnected());
+
+    setStatus(`Connecting to ${device.name || 'device'}…`, 'connecting');
+    log(`Selected: ${device.name || '(no name)'} [${device.id}]`);
+
+    this.server = await device.gatt.connect();
+    log('GATT connected', 'info');
+
+    // Sniff which service the device advertises.
+    let service = null;
+    try {
+      service = await this.server.getPrimaryService(UUID.daly.service);
+      this.proto = Daly;
+      log('Detected Daly service (0xFFF0)', 'info');
+    } catch (_) { /* try the next one */ }
+
+    if (!service) {
+      try {
+        service = await this.server.getPrimaryService(UUID.jbd.service);
+        this.proto = JBD;
+        log('Detected JBD service (0xFF00)', 'info');
+      } catch (_) { /* nothing matched */ }
+    }
+
+    if (!service) {
+      throw new Error('Device does not expose a known BMS service (0xFFF0 or 0xFF00).');
+    }
+
+    this.notifyChar = await service.getCharacteristic(this.proto.uuid.notify);
+    this.writeChar  = await service.getCharacteristic(this.proto.uuid.write);
+
+    this.notifyChar.addEventListener('characteristicvaluechanged',
+      (e) => this._onNotification(new Uint8Array(e.target.value.buffer)));
+    await this.notifyChar.startNotifications();
+
+    setStatus(`Connected · ${this.proto.name}`, 'connected');
+    $('devName').textContent = this.device.name || '(unnamed)';
+    $('devType').textContent = this.proto.name;
+    $('emptyState').hidden = true;
+    $('deviceCard').hidden = false;
+    $('btnConnect').disabled = true;
+    $('btnDisconnect').disabled = false;
+    $('btnRefresh').disabled = false;
+    toast('Connected. Polling started.');
+
+    this.startPolling();
+  }
+
+  startPolling(intervalMs = 2500) {
+    this.stopPolling();
+    const tick = async () => {
+      if (this.pollBusy || !this.server?.connected) return;
+      this.pollBusy = true;
+      try {
+        await this.pollOnce();
+      } catch (e) {
+        log(`poll error: ${e.message}`, 'err');
+      } finally {
+        this.pollBusy = false;
+      }
+    };
+    tick();
+    this.pollTimer = setInterval(tick, intervalMs);
+  }
+
+  stopPolling() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
+  }
+
+  async pollOnce() {
+    const send = (frame) => this._writeFrame(frame);
+    const recv = (frame, timeoutMs) => this._request(frame, timeoutMs);
+    const data = await this.proto.update(send, recv);
+    renderData(data);
+    $('devUpdated').textContent = new Date().toLocaleTimeString();
+  }
+
+  // Send a request frame and wait for the next valid response.
+  async _request(frame, timeoutMs = 1500) {
+    if (this.pending) {
+      // serialise: wait for the previous request to resolve/timeout first
+      try { await this.pending.promise; } catch (_) {}
+    }
+    this.buffer = [];
+    let resolve, reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    const timer = setTimeout(() => {
+      this.pending = null;
+      reject(new Error(`timeout waiting for response to ${hex(frame.subarray(0, 4))}…`));
+    }, timeoutMs);
+    this.pending = { resolve, reject, timer, promise };
+
+    log(`TX ${hex(frame)}`, 'tx');
+    await this._writeFrame(frame);
+    return promise;
+  }
+
+  async _writeFrame(frame) {
+    // writeWithoutResponse is faster and matches what the reference firmware expects;
+    // fall back to writeValue if the characteristic doesn't support it.
+    try {
+      if (this.writeChar.writeValueWithoutResponse) {
+        await this.writeChar.writeValueWithoutResponse(frame);
+      } else {
+        await this.writeChar.writeValue(frame);
+      }
+    } catch (e) {
+      // Some stacks reject WWR; retry with the acknowledged write.
+      await this.writeChar.writeValue(frame);
+    }
+  }
+
+  _onNotification(chunk) {
+    log(`RX ${hex(chunk)}`, 'rx');
+    if (!this.pending) return;
+    for (const b of chunk) this.buffer.push(b);
+    const buf = Uint8Array.from(this.buffer);
+
+    // Trim leading garbage until we find a valid header.
+    if (this.proto === Daly) {
+      while (buf.length >= 2 && (buf[0] !== 0xD2 || buf[1] !== 0x03)) {
+        this.buffer.shift();
+      }
+    } else if (this.proto === JBD) {
+      while (this.buffer.length && this.buffer[0] !== 0xDD) {
+        this.buffer.shift();
+      }
+    }
+    const aligned = Uint8Array.from(this.buffer);
+    if (!this.proto.isComplete(aligned)) return;
+    if (!this.proto.validate(aligned)) {
+      log('frame failed CRC check, discarding', 'err');
+      this.buffer = [];
+      return;
+    }
+    const p = this.pending;
+    this.pending = null;
+    clearTimeout(p.timer);
+    this.buffer = [];
+    p.resolve(aligned);
+  }
+
+  async disconnect() {
+    this.stopPolling();
+    try { await this.notifyChar?.stopNotifications(); } catch (_) {}
+    if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    this._cleanup();
+    setStatus('Idle');
+    toast('Disconnected.');
+  }
+
+  _onDisconnected() {
+    log('GATT disconnected', 'err');
+    this.stopPolling();
+    this._cleanup();
+    setStatus('Disconnected', 'error');
+  }
+
+  _cleanup() {
+    this.notifyChar = null;
+    this.writeChar = null;
+    this.proto = null;
+    this.buffer = [];
+    if (this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(new Error('disconnected'));
+      this.pending = null;
+    }
+    $('btnConnect').disabled = false;
+    $('btnDisconnect').disabled = true;
+    $('btnRefresh').disabled = true;
+  }
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+
+function renderData(d) {
+  $('statsCard').hidden = false;
+  $('cellsCard').hidden = false;
+  $('tempsCard').hidden = false;
+  $('flagsCard').hidden = false;
+
+  const fmt = (n, dp) => Number.isFinite(n) ? n.toFixed(dp) : '—';
+
+  $('sVolt').textContent = fmt(d.voltage, 2);
+  $('sCur').textContent  = fmt(d.current, 2);
+  $('sPwr').textContent  = fmt(d.voltage * d.current, 1);
+  $('sSoc').textContent  = fmt(d.soc, 1);
+  $('sCap').textContent  = fmt(d.capacity, 2);
+  $('sCyc').textContent  = d.cycles ?? '—';
+
+  const pct = Math.max(0, Math.min(100, d.soc || 0));
+  $('sSocBar').style.width = pct + '%';
+  $('sSocBar').style.background =
+    pct < 20 ? 'var(--bad)' : pct < 50 ? 'var(--warn)' : 'var(--good)';
+
+  const curStat = $('sCurStat');
+  curStat.classList.toggle('charging',    d.current > 0.05);
+  curStat.classList.toggle('discharging', d.current < -0.05);
+
+  // Cells
+  const cellsEl = $('cells');
+  cellsEl.innerHTML = '';
+  if (d.cells.length) {
+    const minV = Math.min(...d.cells);
+    const maxV = Math.max(...d.cells);
+    const range = Math.max(0.001, maxV - minV);
+    const balancingSet = new Set(d.balancing || []);
+
+    for (let i = 0; i < d.cells.length; i++) {
+      const v = d.cells[i];
+      // Visual scale: 2.5 V (empty) → 3.65 V (full LFP) for the bar fill.
+      const fill = Math.max(0, Math.min(1, (v - 2.5) / (3.65 - 2.5)));
+      const row = document.createElement('div');
+      row.className = 'cell';
+      if (v === maxV && range > 0.01) row.classList.add('high');
+      if (v === minV && range > 0.01) row.classList.add('low');
+      const bal = balancingSet.has(i) ? ' balancing' : '';
+      row.innerHTML = `
+        <div class="idx">${String(i + 1).padStart(2, '0')}</div>
+        <div class="bar${bal}"><div style="width:${(fill * 100).toFixed(1)}%"></div></div>
+        <div class="v">${v.toFixed(3)} V</div>`;
+      cellsEl.appendChild(row);
+    }
+    $('cellsMeta').textContent =
+      `(${d.cells.length} · Δ ${(range * 1000).toFixed(0)} mV · min ${minV.toFixed(3)} · max ${maxV.toFixed(3)})`;
+  } else {
+    cellsEl.innerHTML = '<div style="color:var(--muted);font-size:13px">No cell data.</div>';
+    $('cellsMeta').textContent = '';
+  }
+
+  // Temperatures
+  const tEl = $('temps');
+  tEl.innerHTML = '';
+  if (d.temps && d.temps.length) {
+    for (const t of d.temps) {
+      const el = document.createElement('div');
+      el.className = 'temp';
+      el.innerHTML = `<span class="lab">${t.label}</span>${t.c.toFixed(1)} °C`;
+      tEl.appendChild(el);
+    }
+  } else {
+    tEl.innerHTML = '<div style="color:var(--muted);font-size:13px">No temperature sensors reported.</div>';
+  }
+
+  // Flags
+  const fEl = $('flags');
+  fEl.innerHTML = '';
+  const addFlag = (label, kind) => {
+    const e = document.createElement('span');
+    e.className = 'flag ' + kind;
+    e.textContent = label;
+    fEl.appendChild(e);
+  };
+  addFlag(d.chargeMos    ? 'Charge MOS ON'    : 'Charge MOS OFF',    d.chargeMos    ? 'on' : 'off');
+  addFlag(d.dischargeMos ? 'Discharge MOS ON' : 'Discharge MOS OFF', d.dischargeMos ? 'on' : 'off');
+  if (d.balancing && d.balancing.length) {
+    addFlag(`Balancing: ${d.balancing.map(i => i + 1).join(',')}`, 'warn');
+  } else {
+    addFlag('Not balancing', 'off');
+  }
+  if (d.problem && d.problem !== 0) {
+    addFlag(`Protection: 0x${d.problem.toString(16).toUpperCase()}`, 'warn');
+  } else {
+    addFlag('No protection active', 'on');
+  }
+}
+
+// ─── Wire up UI ───────────────────────────────────────────────────────────────
+
+const conn = new BMSConnection();
+
+$('btnConnect').addEventListener('click', async () => {
+  try {
+    await conn.scanAndConnect();
+  } catch (e) {
+    log(e.message, 'err');
+    setStatus('Error', 'error');
+    toast(e.message, true);
+  }
+});
+
+$('btnDisconnect').addEventListener('click', () => conn.disconnect());
+
+$('btnRefresh').addEventListener('click', async () => {
+  if (conn.pollBusy) return;
+  conn.pollBusy = true;
+  try { await conn.pollOnce(); }
+  catch (e) { log(`refresh: ${e.message}`, 'err'); toast(e.message, true); }
+  finally { conn.pollBusy = false; }
+});
+
+if (!('bluetooth' in navigator)) {
+  setStatus('Web Bluetooth unavailable', 'error');
+  $('btnConnect').disabled = true;
+  toast('This browser does not support Web Bluetooth. Try Chrome on Android.', true);
+}
+</script>
+
+</body>
+</html>
