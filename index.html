@@ -70,6 +70,16 @@
     transition: border-color 0.15s;
   }
   .battery-card.expanded { border-color: var(--accent); }
+  .battery-card.stub { border-style: dashed; }
+  .battery-card.stub .battery-summary { cursor: default; }
+  .battery-card.stub .battery-summary:hover { background: transparent; }
+  .battery-card.stub .type { color: var(--warn); }
+  .stub-actions { display: flex; gap: 6px; margin-left: auto; }
+  .btn-forget-stub {
+    padding: 6px 10px; font-size: 14px;
+    color: var(--bad); border-color: rgba(255,92,92,0.4);
+  }
+  .btn-forget-stub:hover:not(:disabled) { border-color: var(--bad); }
 
   .battery-summary {
     display: flex; flex-wrap: wrap; align-items: center;
@@ -250,10 +260,9 @@
 
   <div id="emptyState" class="empty">
     <h3>No batteries paired yet</h3>
-    <p>Tap <b>Add battery</b> to pair one. After that, every visit auto-connects to it.</p>
-    <p>Pair each battery once; they’ll all reconnect on the next page load.</p>
+    <p>Tap <b>Add battery</b> to pair one. Pairings are saved in this browser, so the card will reappear next visit ready to reconnect.</p>
     <p>Supported: Daly Smart BMS (K/H/M/S, name <code>DL-…</code>) and JBD / Xiaoxiang / DCHouse BMS (service <code>0xFF00</code>).</p>
-    <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost.</p>
+    <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost. Silent auto-reconnect also needs <code>chrome://flags/#enable-web-bluetooth-new-permissions-backend</code>; without it, you'll get a one-tap re-pair card per remembered battery on each visit.</p>
   </div>
 
   <div id="batteryList" hidden></div>
@@ -541,6 +550,87 @@ const REQUEST_FILTERS = {
   ],
   optionalServices: [UUID.daly.service, UUID.jbd.service],
 };
+
+// ─── Remembered-device persistence ───────────────────────────────────────────
+// We store {id, name} of every device the user has paired with, so we can
+// surface them next visit even if navigator.bluetooth.getDevices() doesn't
+// (or returns nothing because the chrome flag isn't set). These records aren't
+// enough to silently reconnect — the browser still needs the underlying
+// permission — but they let us show a labelled "Re-pair" card per battery
+// instead of an empty state.
+
+const STORAGE_KEY = 'blebat:remembered-devices';
+
+function loadRemembered() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return Array.isArray(arr) ? arr.filter(e => e && e.id) : [];
+  } catch (_) { return []; }
+}
+
+function saveRemembered(arr) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
+  catch (_) {}
+}
+
+function rememberDevice(id, name) {
+  if (!id) return;
+  const arr = loadRemembered();
+  const existing = arr.find(e => e.id === id);
+  if (existing) {
+    if (name && existing.name !== name) {
+      existing.name = name;
+      saveRemembered(arr);
+    }
+    return;
+  }
+  arr.push({ id, name: name || '(unnamed)' });
+  saveRemembered(arr);
+}
+
+function unrememberDevice(id) {
+  saveRemembered(loadRemembered().filter(e => e.id !== id));
+}
+
+// ─── Stub card for a remembered battery the browser hasn't returned ──────────
+
+class RememberedStub {
+  constructor(rec, manager) {
+    this.id = rec.id;
+    this.name = rec.name || '(unnamed)';
+    this.manager = manager;
+    this.el = this._buildEl();
+  }
+
+  _buildEl() {
+    const el = document.createElement('div');
+    el.className = 'battery-card stub';
+    el.dataset.stubId = this.id;
+    el.innerHTML = `
+      <div class="battery-summary">
+        <span class="status-dot disconnected"></span>
+        <div class="title">
+          <div class="name"></div>
+          <div class="type">Remembered · re-pair to reconnect</div>
+        </div>
+        <div class="stub-actions">
+          <button class="btn-repair primary" type="button">Re-pair</button>
+          <button class="btn-forget-stub" type="button" aria-label="Forget">✕</button>
+        </div>
+      </div>
+    `;
+    el.querySelector('.name').textContent = this.name;
+    el.querySelector('.btn-repair').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.manager.addNew();
+    });
+    el.querySelector('.btn-forget-stub').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.manager.forgetStub(this.id);
+    });
+    return el;
+  }
+}
 
 // ─── Battery (one device, one card) ───────────────────────────────────────────
 
@@ -956,6 +1046,7 @@ function shortenErr(msg) {
 class Manager {
   constructor() {
     this.batteries = new Map(); // device.id → Battery
+    this.stubs     = new Map(); // device.id → RememberedStub (paired before, no live BluetoothDevice)
     this.listEl = $('batteryList');
   }
 
@@ -969,27 +1060,41 @@ class Manager {
       return;
     }
 
-    if (typeof navigator.bluetooth.getDevices !== 'function') {
-      log('navigator.bluetooth.getDevices() unavailable — auto-reconnect disabled. Pair manually each visit.', 'err');
-      this.updateHeader();
-      return;
-    }
-
     let known = [];
-    try {
-      known = await navigator.bluetooth.getDevices();
-    } catch (e) {
-      log(`getDevices() failed: ${e.message}`, 'err');
+    if (typeof navigator.bluetooth.getDevices === 'function') {
+      try {
+        known = await navigator.bluetooth.getDevices();
+      } catch (e) {
+        log(`getDevices() failed: ${e.message}`, 'err');
+      }
+    } else {
+      log('navigator.bluetooth.getDevices() unavailable — silent reconnect disabled.', 'err');
     }
-    log(`${known.length} previously paired device(s)`, 'info');
+    log(`${known.length} device(s) returned by browser`, 'info');
 
+    const seenIds = new Set();
     for (let i = 0; i < known.length; i++) {
       const dev = known[i];
+      seenIds.add(dev.id);
+      rememberDevice(dev.id, dev.name);
       const bat = new Battery(dev, this);
       this.batteries.set(dev.id, bat);
       this.listEl.appendChild(bat.el);
       // Stagger initial connect so we don't hammer the radio with N parallel GATT connects.
       setTimeout(() => bat.connect(), i * 400);
+    }
+
+    // Surface any battery we paired before but the browser didn't return — the
+    // user gets a card per name with a one-tap Re-pair button.
+    const remembered = loadRemembered();
+    for (const rec of remembered) {
+      if (seenIds.has(rec.id)) continue;
+      const stub = new RememberedStub(rec, this);
+      this.stubs.set(rec.id, stub);
+      this.listEl.appendChild(stub.el);
+    }
+    if (this.stubs.size) {
+      log(`${this.stubs.size} remembered device(s) need re-pairing`, 'info');
     }
 
     this._updateEmptyState();
@@ -1007,6 +1112,14 @@ class Manager {
         return;
       }
 
+      // If the user re-paired something we had as a stub, drop the stub.
+      const stub = this.stubs.get(device.id);
+      if (stub) {
+        stub.el.remove();
+        this.stubs.delete(device.id);
+      }
+
+      rememberDevice(device.id, device.name);
       const bat = new Battery(device, this);
       this.batteries.set(device.id, bat);
       this.listEl.appendChild(bat.el);
@@ -1037,9 +1150,22 @@ class Manager {
     }
     await bat.destroy();
     this.batteries.delete(id);
+    unrememberDevice(id);
     this._updateEmptyState();
     this.updateHeader();
     toast(`Forgot ${bat.name}`);
+  }
+
+  forgetStub(id) {
+    const stub = this.stubs.get(id);
+    if (!stub) return;
+    if (!confirm(`Forget "${stub.name}"?`)) return;
+    stub.el.remove();
+    this.stubs.delete(id);
+    unrememberDevice(id);
+    this._updateEmptyState();
+    this.updateHeader();
+    toast(`Forgot ${stub.name}`);
   }
 
   refreshAll() {
@@ -1062,13 +1188,16 @@ class Manager {
     const total = this.batteries.size;
     let connected = 0;
     for (const b of this.batteries.values()) if (b.status === 'connected') connected++;
-    $('headerSummary').textContent = total === 0
-      ? 'No batteries'
-      : `${connected}/${total} connected`;
+    const stubs = this.stubs.size;
+    let label;
+    if (total === 0 && stubs === 0) label = 'No batteries';
+    else if (total === 0)           label = `${stubs} remembered`;
+    else                            label = `${connected}/${total} connected${stubs ? ` · ${stubs} remembered` : ''}`;
+    $('headerSummary').textContent = label;
   }
 
   _updateEmptyState() {
-    const empty = this.batteries.size === 0;
+    const empty = this.batteries.size === 0 && this.stubs.size === 0;
     $('emptyState').hidden = !empty;
     $('batteryList').hidden = empty;
   }
