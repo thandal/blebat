@@ -243,6 +243,26 @@
     color: var(--muted); font-size: 11px; text-align: center;
     margin: 24px 0 8px 0; line-height: 1.5;
   }
+
+  .flag-hint {
+    background: var(--card); border: 1px solid var(--line);
+    border-left: 3px solid var(--warn);
+    border-radius: 10px; padding: 10px 12px;
+    margin-bottom: 14px;
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  }
+  .flag-hint .flag-text { flex: 1; min-width: 220px; }
+  .flag-hint .flag-text b { color: var(--text); display: block; margin-bottom: 2px; }
+  .flag-hint .muted-hint { display: block; margin-top: 4px; font-size: 11px; }
+  .flag-hint code {
+    background: var(--card-2); padding: 2px 6px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    word-break: break-all; user-select: all;
+  }
+  .flag-hint button {
+    padding: 6px 10px; font-size: 12px;
+  }
 </style>
 </head>
 <body>
@@ -262,7 +282,18 @@
     <h3>No batteries paired yet</h3>
     <p>Tap <b>Add battery</b> to pair one. Pairings are saved in this browser, so the card will reappear next visit ready to reconnect.</p>
     <p>Supported: Daly Smart BMS (K/H/M/S, name <code>DL-…</code>) and JBD / Xiaoxiang / DCHouse BMS (service <code>0xFF00</code>).</p>
-    <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost. Silent auto-reconnect also needs <code>chrome://flags/#enable-web-bluetooth-new-permissions-backend</code>; without it, you'll get a one-tap re-pair card per remembered battery on each visit.</p>
+    <p style="margin-top:12px;font-size:12px">⚠ Web Bluetooth requires Android Chrome (or desktop Chrome) over HTTPS or localhost.</p>
+  </div>
+
+  <div id="flagHint" class="flag-hint" hidden>
+    <span class="flag-text">
+      <b id="flagHintTitle"></b>
+      <span id="flagHintBody"></span>
+      <code id="flagUrl">chrome://flags/#enable-web-bluetooth-new-permissions-backend</code>
+      <span class="muted-hint">(chrome:// URLs can't be opened from a web page — paste it into the address bar.)</span>
+    </span>
+    <button id="copyFlagUrl" type="button">Copy URL</button>
+    <button id="dismissFlagHint" type="button" aria-label="Dismiss">✕</button>
   </div>
 
   <div id="batteryList" hidden></div>
@@ -590,6 +621,20 @@ function rememberDevice(id, name) {
 
 function unrememberDevice(id) {
   saveRemembered(loadRemembered().filter(e => e.id !== id));
+}
+
+// Infer whether Chrome's "new permissions backend" (the one that persists
+// Web-Bluetooth pairings across sessions) is enabled. There's no direct API
+// for the flag — we deduce it from how getDevices() behaves vs. what we
+// saved in localStorage on prior visits.
+//   unsupported : navigator.bluetooth.getDevices is missing entirely
+//   disabled    : we remembered ≥1 device but getDevices() returned 0 of them
+//   enabled     : at least one remembered device came back from getDevices()
+//   unknown     : nothing remembered yet, can't tell on this visit
+function detectPermissionsBackend(rememberedCount, returnedCount) {
+  if (typeof navigator.bluetooth?.getDevices !== 'function') return 'unsupported';
+  if (rememberedCount === 0) return 'unknown';
+  return returnedCount === 0 ? 'disabled' : 'enabled';
 }
 
 // ─── Stub card for a remembered battery the browser hasn't returned ──────────
@@ -1097,6 +1142,9 @@ class Manager {
       log(`${this.stubs.size} remembered device(s) need re-pairing`, 'info');
     }
 
+    this.backendState = detectPermissionsBackend(remembered.length, known.length);
+    log(`permissions backend: ${this.backendState}`, 'info');
+
     this._updateEmptyState();
     this.updateHeader();
   }
@@ -1200,6 +1248,25 @@ class Manager {
     const empty = this.batteries.size === 0 && this.stubs.size === 0;
     $('emptyState').hidden = !empty;
     $('batteryList').hidden = empty;
+
+    // The hint is most useful when we've actually detected something wrong
+    // (or the API is missing). Stay quiet when the backend is enabled or we
+    // can't tell yet (first visit, nothing remembered).
+    const dismissed = localStorage.getItem('blebat:flag-hint-dismissed') === '1';
+    const state = this.backendState;
+    const show = !dismissed && (state === 'disabled' || state === 'unsupported');
+    $('flagHint').hidden = !show;
+    if (show) {
+      if (state === 'unsupported') {
+        $('flagHintTitle').textContent = 'Silent auto-reconnect not supported in this browser.';
+        $('flagHintBody').textContent =
+          ' Try Chrome on Android or desktop with this flag enabled:';
+      } else {
+        $('flagHintTitle').textContent = 'Silent auto-reconnect appears disabled.';
+        $('flagHintBody').textContent =
+          ` Chrome didn't return your remembered ${this.stubs.size === 1 ? 'battery' : 'batteries'}. Enable this flag to fix it permanently:`;
+      }
+    }
   }
 }
 
@@ -1209,6 +1276,27 @@ const mgr = new Manager();
 
 $('btnAdd').addEventListener('click', () => mgr.addNew());
 $('btnRefresh').addEventListener('click', () => mgr.refreshAll());
+
+$('copyFlagUrl').addEventListener('click', async () => {
+  const url = $('flagUrl').textContent.trim();
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Copied — paste into Chrome address bar.');
+  } catch (_) {
+    // Fallback: select the text so the user can copy manually.
+    const range = document.createRange();
+    range.selectNodeContents($('flagUrl'));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast('Selected — long-press or Ctrl+C to copy.', true);
+  }
+});
+
+$('dismissFlagHint').addEventListener('click', () => {
+  localStorage.setItem('blebat:flag-hint-dismissed', '1');
+  $('flagHint').hidden = true;
+});
 
 mgr.init();
 </script>
