@@ -809,37 +809,100 @@ class Battery {
     this._setStatus('connecting', 'Connecting…');
     log(`[${this.name}] connecting`, 'info');
     try {
-      this.server = await this.device.gatt.connect();
-
-      // Sniff which service the device advertises.
-      let service = null;
-      try {
-        service = await this.server.getPrimaryService(UUID.daly.service);
-        this.proto = Daly;
-      } catch (_) { /* try next */ }
-      if (!service) {
-        try {
-          service = await this.server.getPrimaryService(UUID.jbd.service);
-          this.proto = JBD;
-        } catch (_) { /* nothing matched */ }
-      }
-      if (!service) throw new Error('Device does not expose a known BMS service.');
-
-      this.notifyChar = await service.getCharacteristic(this.proto.uuid.notify);
-      this.writeChar  = await service.getCharacteristic(this.proto.uuid.write);
-      this.notifyChar.addEventListener('characteristicvaluechanged',
-        (e) => this._onNotification(new Uint8Array(e.target.value.buffer)));
-      await this.notifyChar.startNotifications();
-
-      this.el.querySelector('.type').textContent = this.proto.name;
-      this._setStatus('connected', 'Connected');
-      log(`[${this.name}] connected (${this.proto.name})`, 'info');
-      this.startPolling();
+      await this._gattConnect();
     } catch (e) {
+      // Devices returned by getDevices() (Chrome's new permissions backend)
+      // are typically "stale" — the browser knows we have permission, but
+      // hasn't seen the device advertise this session, so gatt.connect()
+      // fails immediately with "no longer in range". The fix is to listen
+      // for an advertisement first, then connect once the device is in view.
+      if (this._isStaleDeviceError(e) && typeof this.device.watchAdvertisements === 'function') {
+        log(`[${this.name}] direct connect failed (${shortenErr(e.message)}); waiting for advertisement`, 'info');
+        this._setStatus('connecting', 'Waiting for advertisement…');
+        try {
+          await this._waitForAdvertisement(30000);
+          await this._gattConnect();
+          return;
+        } catch (e2) {
+          log(`[${this.name}] connect after advertisement failed: ${e2.message}`, 'err');
+          this._setStatus('error', shortenErr(e2.message));
+          this._scheduleRetry();
+          return;
+        }
+      }
       log(`[${this.name}] connect failed: ${e.message}`, 'err');
       this._setStatus('error', shortenErr(e.message));
       this._scheduleRetry();
     }
+  }
+
+  _isStaleDeviceError(e) {
+    return /no longer in range/i.test(e?.message || '');
+  }
+
+  async _gattConnect() {
+    this.server = await this.device.gatt.connect();
+
+    // Sniff which service the device advertises.
+    let service = null;
+    try {
+      service = await this.server.getPrimaryService(UUID.daly.service);
+      this.proto = Daly;
+    } catch (_) { /* try next */ }
+    if (!service) {
+      try {
+        service = await this.server.getPrimaryService(UUID.jbd.service);
+        this.proto = JBD;
+      } catch (_) { /* nothing matched */ }
+    }
+    if (!service) throw new Error('Device does not expose a known BMS service.');
+
+    this.notifyChar = await service.getCharacteristic(this.proto.uuid.notify);
+    this.writeChar  = await service.getCharacteristic(this.proto.uuid.write);
+    this.notifyChar.addEventListener('characteristicvaluechanged',
+      (e) => this._onNotification(new Uint8Array(e.target.value.buffer)));
+    await this.notifyChar.startNotifications();
+
+    this.el.querySelector('.type').textContent = this.proto.name;
+    this._setStatus('connected', 'Connected');
+    log(`[${this.name}] connected (${this.proto.name})`, 'info');
+    this.startPolling();
+  }
+
+  _waitForAdvertisement(timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+      if (typeof this.device.watchAdvertisements !== 'function') {
+        reject(new Error('watchAdvertisements() not supported by this browser'));
+        return;
+      }
+      const ac = new AbortController();
+      this._advAc = ac;
+      let settled = false;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.device.removeEventListener('advertisementreceived', onAdv);
+        try { ac.abort(); } catch (_) {}
+        // Some Chrome builds ignore the AbortSignal — fall back to the
+        // explicit unwatch call so we don't keep scanning forever.
+        if (this.device.watchingAdvertisements && typeof this.device.unwatchAdvertisements === 'function') {
+          try { this.device.unwatchAdvertisements(); } catch (_) {}
+        }
+        if (this._advAc === ac) this._advAc = null;
+        err ? reject(err) : resolve();
+      };
+      const timer = setTimeout(
+        () => finish(new Error(`no advertisement seen in ${(timeoutMs / 1000).toFixed(0)}s`)),
+        timeoutMs
+      );
+      const onAdv = () => finish();
+      this.device.addEventListener('advertisementreceived', onAdv);
+      this.device.watchAdvertisements({ signal: ac.signal }).catch((e) => {
+        // AbortError is the normal exit when we cancel after seeing an advert.
+        if (e?.name !== 'AbortError') finish(e);
+      });
+    });
   }
 
   reconnect() {
@@ -969,6 +1032,10 @@ class Battery {
       clearTimeout(this.pending.timer);
       this.pending.reject(new Error('disconnected'));
       this.pending = null;
+    }
+    if (this._advAc) {
+      try { this._advAc.abort(); } catch (_) {}
+      this._advAc = null;
     }
   }
 
