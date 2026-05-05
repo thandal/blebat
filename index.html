@@ -119,6 +119,12 @@
     transition: transform 0.2s;
   }
   .battery-card.expanded .expand-btn { transform: rotate(180deg); }
+  .btn-forget-quick {
+    background: transparent; border: none; color: var(--muted);
+    font-size: 13px; padding: 4px 8px; cursor: pointer;
+    transition: color 0.15s;
+  }
+  .btn-forget-quick:hover { color: var(--bad); }
 
   .battery-status-row {
     display: flex; justify-content: space-between; gap: 10px;
@@ -724,6 +730,7 @@ class Battery {
           <div class="qs qs-cur-wrap"><span class="qsv qs-cur">—</span><span class="qsu">A</span></div>
           <div class="qs"><span class="qsv qs-soc">—</span><span class="qsu">%</span></div>
         </div>
+        <button class="btn-forget-quick" type="button" aria-label="Forget" title="Forget">✕</button>
         <button class="expand-btn" type="button" aria-label="Toggle detail">▾</button>
       </div>
       <div class="battery-status-row">
@@ -763,6 +770,10 @@ class Battery {
       this.reconnect();
     });
     el.querySelector('.btn-forget').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.manager.forget(this.id);
+    });
+    el.querySelector('.btn-forget-quick').addEventListener('click', (e) => {
       e.stopPropagation();
       this.manager.forget(this.id);
     });
@@ -1117,10 +1128,30 @@ class Manager {
     }
     log(`${known.length} device(s) returned by browser`, 'info');
 
-    const seenIds = new Set();
+    // Reconcile getDevices() output against localStorage. Chrome's legacy and
+    // new permissions backends issue different device.id values for the same
+    // physical battery, so an old stored entry can collide with the new one.
+    // Match by id first, name second; drop stored entries that name-match a
+    // currently-returned device (those are stale and would create duplicates).
+    const remembered = loadRemembered();
+    const knownIds = new Set(known.map(d => d.id));
+    const knownNames = new Set(known.map(d => d.name).filter(Boolean));
+    const stubRecs = [];
+    let migrated = 0;
+    for (const rec of remembered) {
+      if (knownIds.has(rec.id)) continue;
+      if (rec.name && knownNames.has(rec.name)) {
+        // Same name now backed by a different device.id — drop the stale id.
+        unrememberDevice(rec.id);
+        migrated++;
+        continue;
+      }
+      stubRecs.push(rec);
+    }
+    if (migrated) log(`migrated ${migrated} stale id(s) to match getDevices() output`, 'info');
+
     for (let i = 0; i < known.length; i++) {
       const dev = known[i];
-      seenIds.add(dev.id);
       rememberDevice(dev.id, dev.name);
       const bat = new Battery(dev, this);
       this.batteries.set(dev.id, bat);
@@ -1129,11 +1160,9 @@ class Manager {
       setTimeout(() => bat.connect(), i * 400);
     }
 
-    // Surface any battery we paired before but the browser didn't return — the
-    // user gets a card per name with a one-tap Re-pair button.
-    const remembered = loadRemembered();
-    for (const rec of remembered) {
-      if (seenIds.has(rec.id)) continue;
+    // Surface any battery we paired before but the browser didn't return —
+    // the user gets a card per name with a one-tap Re-pair button.
+    for (const rec of stubRecs) {
       const stub = new RememberedStub(rec, this);
       this.stubs.set(rec.id, stub);
       this.listEl.appendChild(stub.el);
@@ -1160,11 +1189,31 @@ class Manager {
         return;
       }
 
-      // If the user re-paired something we had as a stub, drop the stub.
-      const stub = this.stubs.get(device.id);
-      if (stub) {
-        stub.el.remove();
-        this.stubs.delete(device.id);
+      // Drop any stub that matches this device by id OR by name. The id may
+      // have changed because of Chrome's permissions-backend migration, so
+      // matching only by id leaves the old stub behind as a duplicate.
+      const dupStubs = [];
+      for (const s of this.stubs.values()) {
+        if (s.id === device.id || (device.name && s.name === device.name)) {
+          dupStubs.push(s);
+        }
+      }
+      for (const s of dupStubs) {
+        s.el.remove();
+        this.stubs.delete(s.id);
+        unrememberDevice(s.id); // wipe the stale localStorage entry too
+      }
+
+      // Also dedupe against any existing real Battery sharing this name (in
+      // case the same physical device was already added under a different id).
+      for (const b of [...this.batteries.values()]) {
+        if (b.device.id === device.id) continue;
+        if (device.name && b.name === device.name) {
+          log(`removing duplicate "${b.name}" with stale id`, 'info');
+          unrememberDevice(b.device.id);
+          await b.destroy();
+          this.batteries.delete(b.device.id);
+        }
       }
 
       rememberDevice(device.id, device.name);
@@ -1254,8 +1303,15 @@ class Manager {
     // can't tell yet (first visit, nothing remembered).
     const dismissed = localStorage.getItem('blebat:flag-hint-dismissed') === '1';
     const state = this.backendState;
-    const show = !dismissed && (state === 'disabled' || state === 'unsupported');
-    $('flagHint').hidden = !show;
+    // 'disabled' is only shown while there's something concrete (a stub) to
+    // explain. 'unsupported' is informational and always shown until dismissed.
+    const show = !dismissed && (
+      state === 'unsupported' ||
+      (state === 'disabled' && this.stubs.size > 0)
+    );
+    const hint = $('flagHint');
+    hint.hidden = !show;
+    hint.style.display = show ? '' : 'none';
     if (show) {
       if (state === 'unsupported') {
         $('flagHintTitle').textContent = 'Silent auto-reconnect not supported in this browser.';
@@ -1293,9 +1349,12 @@ $('copyFlagUrl').addEventListener('click', async () => {
   }
 });
 
-$('dismissFlagHint').addEventListener('click', () => {
-  localStorage.setItem('blebat:flag-hint-dismissed', '1');
-  $('flagHint').hidden = true;
+$('dismissFlagHint').addEventListener('click', (e) => {
+  e.stopPropagation();
+  try { localStorage.setItem('blebat:flag-hint-dismissed', '1'); } catch (_) {}
+  const hint = $('flagHint');
+  hint.hidden = true;
+  hint.style.display = 'none';
 });
 
 mgr.init();
